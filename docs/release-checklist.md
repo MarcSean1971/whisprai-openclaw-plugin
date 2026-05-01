@@ -5,7 +5,7 @@
 - Run `npm test`.
 - Run `npm run pack:dry`.
 - Confirm `README.md` describes the command execution behavior clearly.
-- Confirm `SECURITY.md` explains relay secrets and revocation.
+- Confirm `README.md` and `SECURITY.md` explain that v0.1.1 uses plugin config or `WHISPRAI_*` environment variables instead of a local pairing state file.
 - Confirm issue templates are present.
 - Confirm the repository URL in `package.json` and `openclaw.plugin.json` is correct.
 
@@ -25,11 +25,11 @@ clawhub package publish . \
   --family code-plugin \
   --name @whisprai/openclaw-plugin \
   --display-name "WhisprAI" \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --source-repo MarcSean1971/whisprai-openclaw-plugin \
   --source-commit "$(git rev-parse HEAD)" \
   --source-ref main \
-  --changelog "Initial public release" \
+  --changelog "Remove direct file-backed state from marketplace runtime" \
   --dry-run
 ```
 
@@ -42,5 +42,6 @@ Remove `--dry-run` after validation passes.
 - Install from ClawHub on a clean OpenClaw setup.
 - Run `openclaw whisprai status`.
 - Start and revoke pairing.
+- Confirm configured relay settings survive a gateway restart through plugin config or environment variables.
 - Check ClawHub scan status.
 - Open a GitHub issue for any scanner notes or user-facing warnings that need clearer wording.

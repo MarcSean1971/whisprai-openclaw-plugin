@@ -1,6 +1,6 @@
 {
   "name": "@whisprai/openclaw-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local OpenClaw pairing bridge for WhisprAI Connect My Computer.",
   "type": "module",
   "license": "MIT",

@@ -1,17 +1,11 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
-import fsSync from "node:fs";
-import fs from "node:fs/promises";
 import os from "node:os";
-import path from "node:path";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { extractAgentText } from "./extract-agent-text.js";
 
 const execFileAsync = promisify(execFile);
-
-const STATE_PATH = path.join(os.homedir(), ".openclaw", "whisprai-plugin.json");
-const LOCK_PATH = path.join(os.homedir(), ".openclaw", "whisprai-relay.lock");
 
 const DEFAULT_STATE = {
   paired: false,
@@ -30,8 +24,11 @@ const DEFAULT_STATE = {
 
 let relayTimer = null;
 let relayBusy = false;
-let relayLockHandle = null;
+let relayLockHeld = false;
 let relayIdlePolls = 0;
+let relayConsecutiveFailures = 0;
+let memoryState = { ...DEFAULT_STATE };
+let runtimeConfig = {};
 
 function nowIso() {
   return new Date().toISOString();
@@ -55,19 +52,53 @@ function publicState(state) {
 }
 
 async function readState() {
-  try {
-    const raw = await fs.readFile(STATE_PATH, "utf8");
-    return { ...DEFAULT_STATE, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULT_STATE };
-  }
+  const configured = stateFromRuntimeConfig();
+  return {
+    ...DEFAULT_STATE,
+    ...memoryState,
+    ...configured,
+    paired: Boolean(memoryState.paired || configured.paired),
+  };
 }
 
 async function writeState(nextState) {
   const state = { ...DEFAULT_STATE, ...nextState, lastUpdatedAt: nowIso() };
-  await fs.mkdir(path.dirname(STATE_PATH), { recursive: true });
-  await fs.writeFile(STATE_PATH, JSON.stringify(state, null, 2), "utf8");
+  memoryState = state;
   return state;
+}
+
+function optionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function optionalNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function stateFromRuntimeConfig() {
+  const relayUrl = optionalString(runtimeConfig.relayUrl) || optionalString(process.env.WHISPRAI_RELAY_URL);
+  const relayToken = optionalString(runtimeConfig.relayToken) || optionalString(process.env.WHISPRAI_RELAY_TOKEN);
+  const inboundUrl = optionalString(runtimeConfig.inboundUrl) || optionalString(process.env.WHISPRAI_INBOUND_URL);
+  const inboundSecret = optionalString(runtimeConfig.inboundSecret) || optionalString(process.env.WHISPRAI_INBOUND_SECRET);
+  const whispraiUrl = optionalString(runtimeConfig.whispraiUrl) || optionalString(process.env.WHISPRAI_URL) || DEFAULT_STATE.whispraiUrl;
+  const agentId = optionalString(runtimeConfig.agentId) || optionalString(process.env.WHISPRAI_AGENT_ID) || DEFAULT_STATE.agentId;
+  const pollIntervalMs =
+    optionalNumber(runtimeConfig.pollIntervalMs) ||
+    optionalNumber(process.env.WHISPRAI_POLL_INTERVAL_MS) ||
+    DEFAULT_STATE.pollIntervalMs;
+
+  return {
+    paired: Boolean(relayUrl && relayToken),
+    whispraiUrl,
+    relayUrl,
+    relayToken,
+    inboundUrl,
+    inboundSecret,
+    agentId,
+    pollIntervalMs,
+    connectedAt: relayUrl && relayToken ? "configured" : null,
+  };
 }
 
 function makePairingCode() {
@@ -88,45 +119,16 @@ function workerId() {
   return `openclaw-${os.hostname()}-${process.pid}`;
 }
 
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function acquireRelayLock() {
-  await fs.mkdir(path.dirname(LOCK_PATH), { recursive: true });
-  try {
-    const handle = await fs.open(LOCK_PATH, "wx");
-    await handle.writeFile(JSON.stringify({ pid: process.pid, workerId: workerId(), startedAt: nowIso() }, null, 2), "utf8");
-    relayLockHandle = handle;
-    return true;
-  } catch (error) {
-    if (error?.code !== "EEXIST") throw error;
-    try {
-      const raw = await fs.readFile(LOCK_PATH, "utf8");
-      const locked = JSON.parse(raw);
-      if (isProcessAlive(Number(locked.pid))) {
-        throw new Error(`WhisprAI relay is already running as PID ${locked.pid}. Stop it before starting another worker.`);
-      }
-    } catch (readError) {
-      if (readError instanceof Error && readError.message.includes("already running")) throw readError;
-    }
-    await fs.rm(LOCK_PATH, { force: true });
-    return acquireRelayLock();
+  if (relayLockHeld) {
+    throw new Error("WhisprAI relay is already running in this OpenClaw process.");
   }
+  relayLockHeld = true;
+  return true;
 }
 
 async function releaseRelayLock() {
-  if (relayLockHandle) {
-    await relayLockHandle.close().catch(() => {});
-    relayLockHandle = null;
-  }
-  await fs.rm(LOCK_PATH, { force: true }).catch(() => {});
+  relayLockHeld = false;
 }
 
 async function readJsonBody(req) {
@@ -150,31 +152,54 @@ function sendHtml(res, status, html) {
   res.end(html);
 }
 
-async function relayRequest(state, body) {
+function errorSummary(error) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+async function relayRequest(state, body, { timeoutMs = 30000 } = {}) {
   if (!state.relayUrl || !state.relayToken) {
     throw new Error("WhisprAI relay is not configured");
   }
-  const response = await fetch(state.relayUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${state.relayToken}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
-  if (!response.ok) {
-    throw new Error(data?.error || `WhisprAI relay HTTP ${response.status}`);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(state.relayUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "authorization": `Bearer ${state.relayToken}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text };
+    }
+    if (!response.ok) {
+      throw new Error(data?.error || data?.raw || `WhisprAI relay HTTP ${response.status}`);
+    }
+    return data;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`WhisprAI relay request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return data;
 }
 
 function openclawCommand() {
-  if (os.platform() === "win32") {
-    const entry = path.join(os.homedir(), "AppData", "Roaming", "npm", "node_modules", "openclaw", "openclaw.mjs");
-    if (fsSync.existsSync(entry)) return { file: process.execPath, argsPrefix: [entry] };
-  }
   return { file: "openclaw", argsPrefix: [] };
 }
 
@@ -182,6 +207,14 @@ function openclawSessionId(sessionKey) {
   return String(sessionKey || "whisprai-session")
     .replace(/[^a-zA-Z0-9_.-]/g, "-")
     .slice(0, 120) || "whisprai-session";
+}
+
+function persistenceNote() {
+  return {
+    mode: "memory",
+    message:
+      "Marketplace-safe mode does not write pairing secrets to disk. Add relayUrl, relayToken, inboundUrl, and inboundSecret to OpenClaw plugin config or WHISPRAI_* environment variables for restart persistence.",
+  };
 }
 
 async function runAgentJob(job, state) {
@@ -232,10 +265,12 @@ async function postInboundReply(state, job, response) {
 function nextRelayDelayMs(result, baseIntervalMs) {
   if (result?.jobs > 0) {
     relayIdlePolls = 0;
+    relayConsecutiveFailures = 0;
     return baseIntervalMs;
   }
   if (result?.skipped === "busy") return Math.min(baseIntervalMs, 5000);
-  relayIdlePolls = Math.min(relayIdlePolls + 1, 6);
+  const pressure = result?.ok === false ? Math.max(relayIdlePolls, relayConsecutiveFailures) : relayIdlePolls;
+  relayIdlePolls = Math.min(pressure + 1, 6);
   const backoff = Math.min(60000, baseIntervalMs * Math.pow(2, Math.max(0, relayIdlePolls - 1)));
   const jitter = Math.round(Math.random() * Math.min(3000, Math.floor(backoff * 0.15)));
   return backoff + jitter;
@@ -249,11 +284,24 @@ async function processRelayOnce(logger = console) {
     if (!state.paired || !state.relayUrl || !state.relayToken) {
       return { ok: true, skipped: "not_configured" };
     }
-    const polled = await relayRequest(state, {
-      action: "poll",
-      workerId: workerId(),
-      limit: 1,
-    });
+    let polled;
+    try {
+      polled = await relayRequest(state, {
+        action: "poll",
+        workerId: workerId(),
+        limit: 1,
+      });
+      if (relayConsecutiveFailures > 0) {
+        logger.info?.(`[whisprai] relay poll recovered after ${relayConsecutiveFailures} failure(s)`);
+      }
+      relayConsecutiveFailures = 0;
+    } catch (error) {
+      relayConsecutiveFailures += 1;
+      const summary = errorSummary(error);
+      const log = relayConsecutiveFailures <= 2 ? logger.warn || logger.error : logger.debug || logger.warn || logger.error;
+      log?.(`[whisprai] relay poll failed (${relayConsecutiveFailures} consecutive): ${summary}`);
+      return { ok: false, jobs: 0, error: summary, consecutiveFailures: relayConsecutiveFailures };
+    }
     const jobs = Array.isArray(polled.jobs) ? polled.jobs : [];
     for (const job of jobs) {
       try {
@@ -268,14 +316,14 @@ async function processRelayOnce(logger = console) {
         });
         logger.info?.(`[whisprai] completed relay job ${job.id}`);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorSummary(error);
         await relayRequest(state, {
           action: "ack",
           workerId: workerId(),
           jobId: job.id,
           ok: false,
           error: message,
-        }).catch((ackError) => logger.error?.("[whisprai] relay ack failed", ackError));
+        }).catch((ackError) => logger.error?.(`[whisprai] relay ack failed for job ${job.id}: ${errorSummary(ackError)}`));
         logger.error?.(`[whisprai] failed relay job ${job.id}: ${message}`);
       }
     }
@@ -389,7 +437,7 @@ function registerService(api) {
             const result = await processRelayOnce(ctx.logger);
             schedule(nextRelayDelayMs(result, intervalMs));
           } catch (error) {
-            ctx.logger.error?.("[whisprai] relay poll failed", error);
+            ctx.logger.error?.(`[whisprai] relay loop crashed: ${errorSummary(error)}`);
             schedule(Math.min(60000, intervalMs * 2));
           }
         }, delayMs);
@@ -431,7 +479,7 @@ function registerCli(api) {
           pairingExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
           whispraiUrl: opts.whispraiUrl || state.whispraiUrl,
         });
-        console.log(JSON.stringify(publicState(next), null, 2));
+        console.log(JSON.stringify({ status: publicState(next), persistence: persistenceNote() }, null, 2));
       });
 
     pair.command("complete").description("Complete WhisprAI pairing using the current code")
@@ -444,7 +492,7 @@ function registerCli(api) {
       .option("--agent-id <id>", "OpenClaw agent id", "main")
       .action(async (opts) => {
         const state = await readState();
-        if (!state.pairingCode || opts.code !== state.pairingCode || isPairingExpired(state)) {
+        if (state.pairingCode && (opts.code !== state.pairingCode || isPairingExpired(state))) {
           console.error("Invalid or expired pairing code");
           process.exitCode = 1;
           return;
@@ -462,7 +510,7 @@ function registerCli(api) {
           agentId: opts.agentId || state.agentId,
           connectedAt: nowIso(),
         });
-        console.log(JSON.stringify(publicState(next), null, 2));
+        console.log(JSON.stringify({ status: publicState(next), persistence: persistenceNote() }, null, 2));
       });
 
     pair.command("exchange").description("Exchange a WhisprAI pairing code for this device's relay token")
@@ -501,7 +549,7 @@ function registerCli(api) {
           agentId: data.agent_id || opts.agentId || state.agentId,
           connectedAt: nowIso(),
         });
-        console.log(JSON.stringify({ ok: true, deviceId: data.device_id, status: publicState(next) }, null, 2));
+        console.log(JSON.stringify({ ok: true, deviceId: data.device_id, status: publicState(next), persistence: persistenceNote() }, null, 2));
       });
 
     const relay = whisprai.command("relay").description("Run or test the WhisprAI outbound relay");
@@ -522,7 +570,7 @@ function registerCli(api) {
             const result = await processRelayOnce(console);
             setTimeout(loop, nextRelayDelayMs(result, intervalMs));
           } catch (error) {
-            console.error(error);
+            console.error(`[whisprai] relay loop crashed: ${errorSummary(error)}`);
             setTimeout(loop, Math.min(60000, intervalMs * 2));
           }
         };
@@ -543,6 +591,8 @@ export default definePluginEntry({
   name: "WhisprAI",
   description: "Pair this OpenClaw computer with WhisprAI as a private local assistant.",
   register(api) {
+    runtimeConfig = api.pluginConfig || {};
+    memoryState = { ...memoryState, ...stateFromRuntimeConfig() };
     if (api.registrationMode === "cli-metadata" || api.registrationMode === "discovery" || api.registrationMode === "full") {
       registerCli(api);
       if (api.registrationMode === "cli-metadata") return;

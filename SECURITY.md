@@ -6,7 +6,8 @@ WhisprAI OpenClaw Plugin pairs a user's local OpenClaw computer with WhisprAI. T
 
 - Pairing is explicit and revocable.
 - The plugin polls WhisprAI from the user's computer; it does not require a public inbound tunnel to the computer.
-- Relay and inbound secrets are stored in the local OpenClaw state file.
+- Relay and inbound secrets should be stored in OpenClaw plugin config or `WHISPRAI_*` environment variables.
+- The plugin keeps temporary pairing data in memory and does not read or write a local pairing state file.
 - Public status output masks secrets.
 - Hosted WhisprAI should never expose OpenClaw gateway URLs or relay secrets to normal users.
 - Sensitive local actions should remain protected by OpenClaw's normal approval flows.
@@ -26,6 +27,7 @@ This is the core bridge behavior. Marketplace scanners may flag the plugin becau
 - It does not create a public tunnel to the user's OpenClaw gateway.
 - It does not intentionally collect analytics.
 - It does not intentionally send local files by itself.
+- It does not read local files for pairing state.
 - It does not bypass OpenClaw approval flows.
 - It does not print relay tokens or inbound secrets in status output.
 

@@ -14,6 +14,8 @@ WhisprAI OpenClaw Plugin connects WhisprAI's Archie assistant to the user's own 
 
 Hosted WhisprAI does not need direct access to `127.0.0.1`, a home router, a public tunnel, or the user's OpenClaw gateway. This keeps the user's computer private while still letting Archie use the user's local OpenClaw setup, configured tools, coding environment, browser workflows, and approval model.
 
+Version 0.1.1 removes file-backed pairing state from the plugin runtime. Persistent relay settings should be supplied through OpenClaw plugin config or `WHISPRAI_*` environment variables, and temporary pairing state is memory-only.
+
 This is an early public release. It is useful now, and it will be updated continuously. Constructive feedback, especially pairing issues, relay failures, privacy questions, and non-technical usability suggestions, is welcome at:
 
 https://github.com/MarcSean1971/whisprai-openclaw-plugin/issues
@@ -36,11 +38,11 @@ clawhub package publish . \
   --family code-plugin \
   --name @whisprai/openclaw-plugin \
   --display-name "WhisprAI" \
-  --version 0.1.0 \
+  --version 0.1.1 \
   --source-repo MarcSean1971/whisprai-openclaw-plugin \
   --source-commit "$(git rev-parse HEAD)" \
   --source-ref main \
-  --changelog "Initial public release"
+  --changelog "Remove direct file-backed state from marketplace runtime"
 ```
 
 ## Keywords
@@ -58,3 +60,5 @@ clawhub package publish . \
 ## Safety Notes
 
 This plugin intentionally executes the local `openclaw agent` command. That is the product: WhisprAI queues work, and the user's own OpenClaw computer performs it locally. Marketplace scanners may flag command execution. The listing should make this clear so users understand exactly what they are installing.
+
+The plugin does not read or write a local pairing state file in v0.1.1. Relay credentials should be configured through OpenClaw plugin settings or environment variables.
