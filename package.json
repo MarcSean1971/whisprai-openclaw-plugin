@@ -25,6 +25,12 @@
     "test": "node --test extract-agent-text.test.mjs",
     "pack:dry": "npm pack --dry-run"
   },
+  "dependencies": {
+    "openclaw": "^2026.4.29"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "files": [
     "README.md",
     "LICENSE",
@@ -44,6 +50,10 @@
     "compat": {
       "pluginApi": ">=2026.3.24-beta.2",
       "minGatewayVersion": "2026.3.24-beta.2"
+    },
+    "build": {
+      "openclawVersion": "2026.4.29",
+      "pluginSdkVersion": "2026.4.29"
     }
   }
 }
