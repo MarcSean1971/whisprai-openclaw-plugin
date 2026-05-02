@@ -36,8 +36,8 @@ Core message:
 
 - First-run checklist inside WhisprAI.
 - Local health doctor command.
-- Better Windows/macOS/Linux setup docs.
+- Better Windows/macOS/Linux setup docs. v0.1.5 adds configurable OpenClaw launch settings for environments where `openclaw` is not on `PATH`.
 - Signed package and checksum instructions.
 - Optional job types for repo inspection, browser testing, GitHub summaries, and file-safe workflows.
 - User-facing activity log in WhisprAI.
-- Better recovery from expired pairing codes and invalid relay tokens.
+- Better recovery from expired pairing codes, invalid relay tokens, silent lifecycle jobs, and OpenClaw output format changes.

@@ -22,6 +22,8 @@ openclaw agent --session-id whisprai:<conversation_id> --message <request> --jso
 
 This is the core bridge behavior. Marketplace scanners may flag the plugin because it executes a local command. That is expected. The plugin should only be installed by users who want WhisprAI to ask their own local OpenClaw agent to perform work.
 
+By default the plugin launches `openclaw` from `PATH`. Users may optionally configure `openclawCommand` and `openclawArgsPrefix` in OpenClaw plugin config for custom launch environments. Do not point these settings at untrusted executables.
+
 ## What The Plugin Does Not Do
 
 - It does not create a public tunnel to the user's OpenClaw gateway.
@@ -30,6 +32,7 @@ This is the core bridge behavior. Marketplace scanners may flag the plugin becau
 - It does not read local files for pairing state.
 - It does not bypass OpenClaw approval flows.
 - It does not print relay tokens or inbound secrets in status output.
+- It does not post internal `NO_REPLY` or JSON metadata as a visible Archie response.
 
 ## Reporting Issues
 

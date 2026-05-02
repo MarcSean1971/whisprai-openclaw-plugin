@@ -76,6 +76,10 @@ function optionalNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+function optionalStringArray(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()) : [];
+}
+
 function stateFromRuntimeConfig() {
   const relayUrl = optionalString(runtimeConfig.relayUrl);
   const relayToken = optionalString(runtimeConfig.relayToken);
@@ -197,6 +201,9 @@ async function relayRequest(state, body, { timeoutMs = 30000 } = {}) {
 }
 
 function openclawCommand() {
+  const configured = optionalString(runtimeConfig.openclawCommand);
+  if (configured) return { file: configured, argsPrefix: optionalStringArray(runtimeConfig.openclawArgsPrefix) };
+
   return { file: "openclaw", argsPrefix: [] };
 }
 
@@ -212,6 +219,16 @@ function persistenceNote() {
     message:
       "Marketplace-safe mode does not write pairing secrets to disk. Add relayUrl, relayToken, inboundUrl, and inboundSecret to OpenClaw plugin config for restart persistence.",
   };
+}
+
+function isSilentRelayJob(job) {
+  const message = String(job?.message || "").trim();
+  return message === "[CHAT_OPENED]" || message === "NO_REPLY";
+}
+
+function isSilentRelayResponse(response) {
+  const message = String(response || "").trim();
+  return !message || message === "NO_REPLY" || message.startsWith("{") || message.split(/\r?\n/).some((line) => line.trim().startsWith("{"));
 }
 
 async function runAgentJob(job, state) {
@@ -234,7 +251,6 @@ async function runAgentJob(job, state) {
     windowsHide: true,
   });
   const response = extractAgentText(stdout);
-  if (!response) return "Archie ran locally, but didn't produce a reply this time. Please try again.";
   return response;
 }
 
@@ -302,7 +318,31 @@ async function processRelayOnce(logger = console) {
     const jobs = Array.isArray(polled.jobs) ? polled.jobs : [];
     for (const job of jobs) {
       try {
+        if (isSilentRelayJob(job)) {
+          await relayRequest(state, {
+            action: "ack",
+            workerId: workerId(),
+            jobId: job.id,
+            ok: true,
+            response: "",
+          });
+          logger.info?.(`[whisprai] skipped silent relay job ${job.id}`);
+          continue;
+        }
+
         const response = await runAgentJob(job, state);
+        if (isSilentRelayResponse(response)) {
+          await relayRequest(state, {
+            action: "ack",
+            workerId: workerId(),
+            jobId: job.id,
+            ok: true,
+            response: "",
+          });
+          logger.info?.(`[whisprai] completed silent relay job ${job.id}`);
+          continue;
+        }
+
         await postInboundReply(state, job, response);
         await relayRequest(state, {
           action: "ack",

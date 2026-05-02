@@ -35,6 +35,8 @@ The plugin is designed for people who want WhisprAI to be more than a chat app. 
 - Polls WhisprAI for queued jobs.
 - Runs `openclaw agent` locally with the queued user request.
 - Sends Archie the assistant reply.
+- Skips silent lifecycle jobs such as chat-opened events without posting noisy fallback replies.
+- Extracts visible assistant text from OpenClaw JSON, JSONL, and plain-text output while suppressing internal metadata.
 - Provides a local status endpoint and CLI commands.
 - Allows the user to revoke the pairing.
 
@@ -104,6 +106,8 @@ Marketplace-safe mode does not read or write a local state file. Temporary pairi
 | `inboundSecret` | Secret used to send results back. |
 | `agentId` | Local agent name shown in WhisprAI. |
 | `pollIntervalMs` | Relay polling interval. |
+| `openclawCommand` | Optional OpenClaw executable path or command. Leave empty to use `openclaw` from `PATH`. |
+| `openclawArgsPrefix` | Optional advanced argument array inserted before `agent`, useful for custom launch setups. |
 
 After changing config, restart the OpenClaw gateway and run:
 
@@ -122,8 +126,9 @@ openclaw agent --session-id whisprai:<conversation_id> --message <request> --jso
 ```
 
 4. The plugin extracts the visible assistant reply from OpenClaw output.
-5. The plugin posts the reply to WhisprAI using the inbound secret.
-6. The relay job is acknowledged as completed or failed.
+5. Silent lifecycle jobs and `NO_REPLY` outputs are acknowledged without posting a user-visible response.
+6. The plugin posts visible replies to WhisprAI using the inbound secret.
+7. The relay job is acknowledged as completed or failed.
 
 ## Security Model
 
@@ -136,6 +141,8 @@ openclaw agent --session-id whisprai:<conversation_id> --message <request> --jso
 - Sensitive computer actions should continue to rely on OpenClaw approval flows.
 
 Important: this plugin intentionally launches the local `openclaw` executable with `node:child_process`. That is the core bridge behavior. ClawHub or other scanners may flag this as command execution. The command is scoped to `openclaw agent`, and users should install it only if they want WhisprAI to be able to ask their local OpenClaw agent for help.
+
+Advanced users can set `openclawCommand` and `openclawArgsPrefix` in OpenClaw plugin config when the gateway process cannot find `openclaw` on `PATH`. This is useful for Windows services, scheduled tasks, or custom OpenClaw installations.
 
 ## Privacy Notes
 
@@ -167,7 +174,7 @@ openclaw whisprai relay poll
 ## Roadmap
 
 - Friendlier pairing page copy for non-technical users.
-- Stronger relay diagnostics and self-healing status messages.
+- Stronger relay diagnostics and self-healing status messages. v0.1.5 improves silent-job handling and visible-reply extraction.
 - Richer job types beyond simple assistant text.
 - Better user consent screens before sensitive local actions.
 - Optional GitHub issue/PR workflows through the user's OpenClaw tools.

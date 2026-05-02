@@ -1,7 +1,7 @@
 {
   "id": "clawkit-whisprai",
   "name": "ClawKit for WhisprAI",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Pair this OpenClaw computer with WhisprAI so Archie can act as a private local assistant.",
   "homepage": "https://whisprai.app",
   "repository": "https://github.com/MarcSean1971/clawkit-for-whisprai",
@@ -48,6 +48,17 @@
       "pollIntervalMs": {
         "type": "number",
         "description": "Relay polling interval in milliseconds."
+      },
+      "openclawCommand": {
+        "type": "string",
+        "description": "Optional OpenClaw executable path or command. Leave empty to use openclaw from PATH."
+      },
+      "openclawArgsPrefix": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional arguments inserted before the agent command, for advanced launch setups."
       }
     }
   }
