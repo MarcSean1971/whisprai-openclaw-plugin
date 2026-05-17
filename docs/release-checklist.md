@@ -27,7 +27,7 @@ clawhub package publish . \
   --family code-plugin \
   --name @clawkit/clawkit-for-whisprai \
   --display-name "ClawKit for WhisprAI" \
-  --version 0.1.10 \
+  --version 0.1.11 \
   --source-repo MarcSean1971/clawkit-for-whisprai \
   --source-commit "$(git rev-parse HEAD)" \
   --source-ref main \

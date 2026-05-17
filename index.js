@@ -1,4 +1,5 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import fsSync from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
@@ -6,6 +7,18 @@ import { promisify } from "node:util";
 import { extractAgentText } from "./extract-agent-text.js";
 
 const execFileAsync = promisify(execFile);
+const PACKAGE_PATH = new URL("./package.json", import.meta.url);
+
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(fsSync.readFileSync(PACKAGE_PATH, "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+const PLUGIN_VERSION = readPackageVersion();
 
 const DEFAULT_STATE = {
   paired: false,
@@ -29,6 +42,7 @@ let relayIdlePolls = 0;
 let relayConsecutiveFailures = 0;
 let memoryState = { ...DEFAULT_STATE };
 let runtimeConfig = {};
+let cachedOpenClawVersion = null;
 
 function nowIso() {
   return new Date().toISOString();
@@ -176,7 +190,7 @@ async function relayRequest(state, body, { timeoutMs = 30000 } = {}) {
         "content-type": "application/json",
         "authorization": `Bearer ${state.relayToken}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, client: await clientStatus() }),
       signal: controller.signal,
     });
     const text = await response.text();
@@ -205,6 +219,34 @@ function openclawCommand() {
   if (configured) return { file: configured, argsPrefix: optionalStringArray(runtimeConfig.openclawArgsPrefix) };
 
   return { file: "openclaw", argsPrefix: [] };
+}
+
+async function detectOpenClawVersion() {
+  if (cachedOpenClawVersion) return cachedOpenClawVersion;
+  try {
+    const command = openclawCommand();
+    const { stdout } = await execFileAsync(command.file, [...command.argsPrefix, "--version"], {
+      timeout: 5000,
+      maxBuffer: 128 * 1024,
+      windowsHide: true,
+    });
+    cachedOpenClawVersion = String(stdout || "").trim().split(/\r?\n/)[0] || "unknown";
+  } catch {
+    cachedOpenClawVersion = "unknown";
+  }
+  return cachedOpenClawVersion;
+}
+
+async function clientStatus() {
+  return {
+    helperVersion: PLUGIN_VERSION,
+    pluginVersion: PLUGIN_VERSION,
+    openclawVersion: await detectOpenClawVersion(),
+    nodeVersion: process.version,
+    platform: os.platform(),
+    arch: os.arch(),
+    hostname: os.hostname(),
+  };
 }
 
 function openclawSessionId(sessionKey) {
@@ -565,6 +607,11 @@ function registerCli(api) {
             deviceName: opts.deviceName,
             platform: os.platform(),
             agentId: opts.agentId,
+            helperVersion: PLUGIN_VERSION,
+            pluginVersion: PLUGIN_VERSION,
+            openclawVersion: await detectOpenClawVersion(),
+            nodeVersion: process.version,
+            client: await clientStatus(),
           }),
         });
         const data = await response.json().catch(() => ({}));

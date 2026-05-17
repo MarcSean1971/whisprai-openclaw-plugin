@@ -192,7 +192,7 @@ openclaw whisprai relay poll
 ## Roadmap
 
 - Friendlier mobile/desktop pairing guidance for non-technical users.
-- Stronger relay diagnostics and self-healing status messages. v0.1.10 keeps the public package on the correct ClawKit for WhisprAI name/source, documents the new Archie modes, and preserves the silent-job handling, visible-reply extraction, and configurable OpenClaw launch settings from earlier releases.
+- Stronger relay diagnostics and self-healing status messages. v0.1.11 reports local helper, plugin, OpenClaw, Node, platform, and host versions back to WhisprAI so desktop update prompts can be shown cleanly.
 - Better Cloud + my computer connector copy, including temporary vs remembered links.
 - Richer job types beyond simple assistant text.
 - Better user consent screens before sensitive local actions.

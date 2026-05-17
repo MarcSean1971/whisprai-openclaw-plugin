@@ -22,7 +22,7 @@ WhisprAI exposes three Archie choices:
 
 This plugin is the connector side for the local-computer choices. Desktop users download and open the connector from WhisprAI Settings. Mobile users can use an already paired computer from the same WhisprAI account, but setup should happen on the computer itself.
 
-Version 0.1.10 updates the GitHub and ClawHub documentation for Archie Cloud, Archie Local, and Cloud + my computer setup. It keeps the marketplace-safe config model from 0.1.9: silent lifecycle jobs are acknowledged without noisy replies, OpenClaw JSON/JSONL output is parsed reliably, and custom OpenClaw launch commands can be configured through plugin settings.
+Version 0.1.11 reports ClawKit, helper, OpenClaw, Node, platform, and host details during pairing and relay heartbeats so WhisprAI can show clear desktop update prompts. It keeps the marketplace-safe config model from 0.1.10: silent lifecycle jobs are acknowledged without noisy replies, OpenClaw JSON/JSONL output is parsed reliably, and custom OpenClaw launch commands can be configured through plugin settings.
 
 This is an early public release. It is useful now, and it will be updated continuously. Constructive feedback, especially pairing issues, relay failures, privacy questions, and non-technical usability suggestions, is welcome at:
 
@@ -46,7 +46,7 @@ clawhub package publish . \
   --family code-plugin \
   --name @clawkit/clawkit-for-whisprai \
   --display-name "ClawKit for WhisprAI" \
-  --version 0.1.10 \
+  --version 0.1.11 \
   --source-repo MarcSean1971/clawkit-for-whisprai \
   --source-commit "$(git rev-parse HEAD)" \
   --source-ref main \
